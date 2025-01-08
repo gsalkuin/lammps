@@ -248,7 +248,7 @@ double BondBPMBeam::elastic_forces(int i1, int i2, int type, double r_mag, doubl
 
   MathExtra::scale3(Fr * r_mag_inv, rb, F_rot);
 
-  ebond = 0.5 * MathExtra::dot3(F_rot, rb) * (r_mag - r0_mag) * r_mag_inv;
+  ebond = 0.5 * Fr * (r_mag - r0_mag);
 
   // Calculate forces due to tangential displacements (no rotation)
   r0_dot_rb = MathExtra::dot3(r0, rb);
