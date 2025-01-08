@@ -1,0 +1,115 @@
+##############################################################################################################################
+# Cylindrical cantilever beam under point load p on free end
+# Gabriel Alkuino 07-Jan-2025
+
+# Beam dimensions, area, moments
+variable    L equal 100
+variable    diam equal 1
+variable    d0 equal 1
+
+variable    A equal (PI/4)*${diam}^2
+variable    I equal (PI/64)*${diam}^4
+variable    J equal (PI/32)*${diam}^4
+
+# Young's modulus and Poisson's ratio
+variable    E equal 1
+variable    nu equal 0.5
+
+variable    G equal "v_E/(2*(1+v_nu))"
+
+# Apply a load such that the maximum deflection is 10%
+variable    dymax equal "-0.1*v_L"
+
+# According to Euler-Bernoulli beam theory, the load should be
+variable    p equal $(3*v_E*v_I*v_dymax/v_L^3)
+# https://home.engineering.iastate.edu/~shermanp/STAT447/STAT%20Articles/Beam_Deflection_Formulae.pdf
+
+##############################################################################################################################
+units       lj
+dimension   3
+boundary    f f f
+processors  * 1 1
+
+atom_style      bpm/sphere
+special_bonds   lj 0.0 1.0 1.0 coul 1.0 1.0 1.0
+newton          on off
+
+neighbor        0.5 bin
+neigh_modify    once yes
+comm_modify     mode single cutoff 2.0 vel yes
+
+read_data   beam-100.lam
+
+region  left block INF 0.5 INF INF INF INF
+region  right block 99.5 INF INF INF INF INF
+group   left region left
+group   right region right
+group   free subtract all left
+
+##############################################################################################################################
+# BPM parameters
+
+bond_style  bpm/beam smooth no break no
+bond_coeff  1 ${E} ${G} 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+pair_style  zero 2.0
+pair_coeff  * * 2.0
+
+##############################################################################################################################
+timestep    0.1
+
+# Deflection of free end
+compute     delx right reduce ave x
+compute     dely right reduce ave y
+variable    dx equal "c_delx/v_L-1"
+variable    dy equal "c_dely/v_L"
+
+fix 1 free nve/bpm/sphere
+fix 2 free langevin 0 0 10000 83715463 zero yes omega yes
+fix 3 right addforce 0 v_p 0
+
+# Do not add external work to energy
+fix_modify 3 energy no
+
+# Theoretical final deflection curve
+variable    ytheo atom "v_p*x^2/(6*v_E*v_I) * (3*v_L-x)"
+variable    ydiff atom "y-v_ytheo"
+compute     maxdiffy all reduce maxabs v_ydiff
+
+# External work
+variable    Wext equal v_p*c_dely
+
+# Elastic energy
+
+# in current state, computed by LAMMPS
+compute     mytemp all temp/sphere
+compute     erot all erotate/sphere
+variable    U equal "ke + c_erot + pe" # thermo etotal doesn't include erot
+variable    Uerr equal abs(v_U-v_Uf_theo)/v_Uf_theo
+
+# in final state
+variable    Uf_theo equal $(v_L^3*v_p^2/(6*v_E*v_I))
+
+thermo_style    custom step temp ke c_erot pe v_U v_Uf_theo v_Uerr v_Wext v_dy c_maxdiffy
+thermo_modify   temp mytemp norm no
+thermo          100000
+
+dump    1 all custom 100000 ./bend-point.dump id x y z fx fy fz
+
+run 5000000
+
+##############################################################################################################################
+variable    Wextf_theo equal v_p*v_dymax
+
+# Discrete approximation of Uf using U = E*I/2 * int[(y'')^2 dx]
+variable    fddy atom "v_p/(v_E*v_I) * (v_L-x)"
+variable    Uf_atom atom "0.5*v_E*v_I*(v_fddy)^2*v_d0"
+compute     Uf_discrete all reduce sum v_Uf_atom
+run         0
+
+print "####################################################################"
+print "The external work done on the beam is W = ${Wext}."
+print "The theoretical value is W = ${Wextf_theo}."
+print "####################################################################"
+print "The total elastic energy of the beam is Uf_theo = ${Uf_theo}."
+print "The discrete approximation is Uf_discrete = $(c_Uf_discrete)."
+print "####################################################################"

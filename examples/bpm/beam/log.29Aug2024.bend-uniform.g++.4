@@ -1,0 +1,318 @@
+
+##############################################################################################################################
+# Cylindrical cantilever beam under uniform load w = p/L
+# Gabriel Alkuino 07-Jan-2025
+
+# Beam dimensions, area, moments
+variable    L equal 100
+variable    diam equal 1
+variable    d0 equal 1
+
+variable    A equal (PI/4)*${diam}^2
+variable    A equal (PI/4)*1^2
+variable    I equal (PI/64)*${diam}^4
+variable    I equal (PI/64)*1^4
+variable    J equal (PI/32)*${diam}^4
+variable    J equal (PI/32)*1^4
+
+# Young's modulus and Poisson's ratio
+variable    E equal 1
+variable    nu equal 0.5
+
+variable    G equal "v_E/(2*(1+v_nu))"
+
+# Apply a load such that the maximum deflection is 10%
+variable    dymax equal "-0.1*v_L"
+
+# According to Euler-Bernoulli beam theory, the load should be
+variable    w equal 8*v_E*v_I*v_dymax/v_L^4
+# https://home.engineering.iastate.edu/~shermanp/STAT447/STAT%20Articles/Beam_Deflection_Formulae.pdf
+
+##############################################################################################################################
+units       lj
+dimension   3
+boundary    f f f
+processors  * 1 1
+
+atom_style      bpm/sphere
+special_bonds   lj 0.0 1.0 1.0 coul 1.0 1.0 1.0
+newton          on off
+
+neighbor        0.5 bin
+neigh_modify    once yes
+comm_modify     mode single cutoff 2.0 vel yes
+
+read_data   beam-100.lam
+Reading data file ...
+  orthogonal box = (-1 -21 -1) to (101 21 1)
+  4 by 1 by 1 MPI processor grid
+  reading atoms ...
+  101 atoms
+  scanning bonds ...
+  2 = max bonds/atom
+  orthogonal box = (-1 -21 -1) to (101 21 1)
+  4 by 1 by 1 MPI processor grid
+  reading bonds ...
+  100 bonds
+Finding 1-2 1-3 1-4 neighbors ...
+  special bond factors lj:    0        1        1       
+  special bond factors coul:  1        1        1       
+     2 = max # of 1-2 neighbors
+     2 = max # of special neighbors
+  special bonds CPU = 0.000 seconds
+  read_data CPU = 0.005 seconds
+
+region  left block INF 0.5 INF INF INF INF
+region  right block 99.5 INF INF INF INF INF
+group   left region left
+1 atoms in group left
+group   right region right
+1 atoms in group right
+group   free subtract all left
+100 atoms in group free
+
+##############################################################################################################################
+# BPM parameters
+
+bond_style  bpm/beam smooth no break no
+bond_coeff  1 ${E} ${G} 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 1 ${G} 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 1 0.333333333333333 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 1 0.333333333333333 1 6.283185307179586232 $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 1 0.333333333333333 1 6.283185307179586232 6.283185307179586232 0.500000 0.500000 0.50000 0.50000
+pair_style  zero 2.0
+pair_coeff  * * 2.0
+
+##############################################################################################################################
+timestep    0.1
+
+# Deflection of free end
+compute     delx right reduce ave x
+compute     dely right reduce ave y
+variable    dx equal "c_delx/v_L-1"
+variable    dy equal "c_dely/v_L"
+
+# Distribute total load to free atoms
+variable    fy equal v_w*v_L/count(free)
+
+fix 1 free nve/bpm/sphere
+fix 2 free langevin 0 0 10000 83715463 zero yes omega yes
+fix 3 free addforce 0 v_fy 0
+
+# Do not add external work to energy
+fix_modify 3 energy no
+
+# Theoretical deflection curve
+variable	ytheo atom "v_w*x^2/(24*v_E*v_I) * (6*v_L^2 - 4*v_L*x + x^2)"
+variable    ydiff atom "y-v_ytheo"
+compute     maxdiffy all reduce maxabs v_ydiff
+
+# External work
+variable    Wexta atom v_w*v_d0*y
+compute     Wext all reduce sum v_Wexta
+
+# Elastic energy
+
+# in current state, computed by LAMMPS
+compute     mytemp all temp/sphere
+compute     erot all erotate/sphere
+variable    U equal "ke + c_erot + pe" # thermo etotal doesn't include erot
+variable    Uerr equal abs(v_U-v_Uf_theo)/v_Uf_theo
+
+# in final state
+variable    Uf_theo equal $(v_L^5*v_w^2/(40*v_E*v_I))
+variable    Uf_theo equal 7.8539816339744820473e-06
+
+thermo_style    custom step temp ke c_erot pe v_U v_Uf_theo v_Uerr c_Wext v_dy c_maxdiffy
+thermo_modify   temp mytemp norm no
+thermo          100000
+
+dump    1 all custom 100000 ./bend-uniform.dump id x y z fx fy fz
+
+run 5000000
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+
+- Type Label Framework: https://doi.org/10.1021/acs.jpcb.3c08419
+
+@Article{Gissinger24,
+ author = {Jacob R. Gissinger, Ilia Nikiforov, Yaser Afshar, Brendon Waters, Moon-ki Choi, Daniel S. Karls, Alexander Stukowski, Wonpil Im, Hendrik Heinz, Axel Kohlmeyer, and Ellad B. Tadmor},
+ title = {Type Label Framework for Bonded Force Fields in LAMMPS},
+ journal = {J. Phys. Chem. B},
+ year =    2024,
+ volume =  128,
+ number =  13,
+ pages =   {3282–-3297}
+}
+
+- BPM bond style: doi:10.1039/D3SM01373A
+
+@Article{Clemmer2024,
+ author =  {Clemmer, Joel T. and Monti, Joseph M. and Lechman, Jeremy B.},
+ title =   {A soft departure from jamming: the compaction of deformable
+            granular matter under high pressures},
+ journal = {Soft Matter},
+ year =    2024,
+ volume =  20,
+ number =  8,
+ pages =   {1702--1718}
+}
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Generated 0 of 0 mixed pair_coeff terms from geometric mixing rule
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 2.5
+  ghost atom cutoff = 2.5
+  binsize = 1.25, bins = 82 34 2
+  1 neighbor lists, perpetual/occasional/extra = 1 0 0
+  (1) pair zero, perpetual
+      attributes: half, newton on
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+WARNING: Communication cutoff adjusted to 2.5 (src/comm.cpp:739)
+Per MPI rank memory allocation (min/avg/max) = 7.137 | 7.137 | 7.137 Mbytes
+   Step          Temp          KinEng         c_erot         PotEng          v_U         v_Uf_theo        v_Uerr         c_Wext          v_dy        c_maxdiffy  
+         0   0              0              0              0              0              7.8539816e-06  1              0              0              10           
+    100000   8.1651646e-09  2.4617971e-06  1.021488e-10   1.1802762e-06  3.6421755e-06  7.8539816e-06  0.53626382     6.1632074e-06 -0.038677287    6.1208881    
+    200000   4.1349795e-09  1.2466963e-06  4.8519594e-11  6.8800371e-06  8.126782e-06   7.8539816e-06  0.034734016    1.4859199e-05 -0.093883115    0.54407109   
+    300000   1.5790167e-10  4.7607355e-08  1.3669376e-12  1.1000142e-05  1.104775e-05   7.8539816e-06  0.40664326     1.8769988e-05 -0.11860615     1.9687623    
+    400000   2.2717987e-10  6.8494732e-08  4.8153595e-12  1.0518544e-05  1.0587044e-05  7.8539816e-06  0.34798428     1.8359373e-05 -0.11578623     1.6815092    
+    500000   2.2795097e-10  6.8727216e-08  4.0439143e-12  8.6285524e-06  8.6972836e-06  7.8539816e-06  0.10737255     1.6637205e-05 -0.10466077     0.54990189   
+    600000   2.6725057e-11  8.0576046e-09  5.3052508e-13  7.5564795e-06  7.5645376e-06  7.8539816e-06  0.036853154    1.5573132e-05 -0.097813123    0.14559887   
+    700000   3.6597983e-12  1.1034292e-09  3.6771691e-14  7.4422622e-06  7.4433657e-06  7.8539816e-06  0.052281245    1.545536e-05  -0.097063746    0.22166216   
+    800000   1.0464259e-11  3.154974e-09   1.3766761e-13  7.7427054e-06  7.7458605e-06  7.8539816e-06  0.013766414    1.5763294e-05 -0.099054408    0.019571159  
+    900000   2.5225036e-12  7.6053485e-10  3.6440721e-14  8.0017784e-06  8.002539e-06   7.8539816e-06  0.018914905    1.6023938e-05 -0.10074089     0.15169028   
+   1000000   6.6308356e-15  1.9991969e-12  1.1152628e-16  8.0728554e-06  8.0728574e-06  7.8539816e-06  0.027868125    1.6094685e-05 -0.10120516     0.19884814   
+   1100000   3.9967738e-13  1.2050273e-10  4.5734235e-15  8.0265578e-06  8.0266783e-06  7.8539816e-06  0.021988423    1.604864e-05  -0.1009162      0.16950384   
+   1200000   1.7850766e-13  5.3820059e-11  2.0039387e-15  7.9677144e-06  7.9677683e-06  7.8539816e-06  0.014487762    1.5989924e-05 -0.100543       0.13160393   
+   1300000   4.7008698e-15  1.4173123e-12  3.9260463e-17  7.9430599e-06  7.9430613e-06  7.8539816e-06  0.011341979    1.5965258e-05 -0.10038638     0.11569916   
+   1400000   1.1821077e-14  3.5640548e-12  2.1969487e-16  7.9471628e-06  7.9471664e-06  7.8539816e-06  0.011864651    1.5969365e-05 -0.10041331     0.11843461   
+   1500000   1.0180791e-14  3.0695085e-12  1.6228031e-16  7.9591121e-06  7.9591152e-06  7.8539816e-06  0.013386021    1.5981322e-05 -0.10049008     0.12623103   
+   1600000   9.913572e-16   2.9889419e-13  1.6001516e-17  7.9660524e-06  7.9660527e-06  7.8539816e-06  0.014269337    1.5988263e-05 -0.10053446     0.13073786   
+   1700000   2.1969715e-16  6.6238692e-14  3.0696974e-18  7.9665666e-06  7.9665667e-06  7.8539816e-06  0.014334772    1.5988777e-05 -0.10053757     0.13105315   
+   1800000   4.8610673e-16  1.4656118e-13  7.2121394e-18  7.9643826e-06  7.9643827e-06  7.8539816e-06  0.014056703    1.5986593e-05 -0.10052339     0.12961385   
+   1900000   1.0300739e-16  3.105673e-14   1.7011048e-18  7.9626536e-06  7.9626536e-06  7.8539816e-06  0.01383655     1.5984864e-05 -0.10051219     0.12847608   
+   2000000   1.1036006e-18  3.3273557e-16  1.9208383e-20  7.9622368e-06  7.9622368e-06  7.8539816e-06  0.013783477    1.5984447e-05 -0.10050945     0.12819789   
+   2100000   1.9365517e-17  5.8387035e-15  2.5057549e-19  7.9625793e-06  7.9625793e-06  7.8539816e-06  0.01382708     1.598479e-05  -0.10051162     0.12841773   
+   2200000   7.634501e-18   2.301802e-15   9.4054007e-20  7.9629754e-06  7.9629754e-06  7.8539816e-06  0.013877513    1.5985186e-05 -0.10051415     0.12867448   
+   2300000   1.2027187e-19  3.6261968e-17  2.2764148e-21  7.9631298e-06  7.9631298e-06  7.8539816e-06  0.013897176    1.598534e-05  -0.10051513     0.12877478   
+   2400000   6.0426147e-19  1.8218483e-16  1.1186177e-20  7.9630934e-06  7.9630934e-06  7.8539816e-06  0.013892546    1.5985304e-05 -0.1005149      0.12875119   
+   2500000   4.5199802e-19  1.362774e-16   1.1692756e-20  7.9630109e-06  7.9630109e-06  7.8539816e-06  0.013882041    1.5985222e-05 -0.10051437     0.12869767   
+   2600000   3.6066735e-20  1.0874121e-17  1.2964219e-20  7.9629659e-06  7.9629659e-06  7.8539816e-06  0.01387631     1.5985176e-05 -0.10051409     0.12866857   
+   2700000   1.301244e-20   3.9232507e-18  4.1987204e-20  7.9629644e-06  7.9629644e-06  7.8539816e-06  0.013876114    1.5985175e-05 -0.10051408     0.12866774   
+   2800000   2.2756051e-20  6.8609494e-18  2.7384102e-20  7.9629798e-06  7.9629798e-06  7.8539816e-06  0.013878076    1.598519e-05  -0.10051418     0.1286779    
+   2900000   4.2218201e-21  1.2728788e-18  6.2017011e-21  7.9629912e-06  7.9629912e-06  7.8539816e-06  0.013879533    1.5985202e-05 -0.10051425     0.12868542   
+   3000000   2.0009518e-22  6.0328696e-20  3.6116157e-21  7.9629936e-06  7.9629936e-06  7.8539816e-06  0.013879839    1.5985204e-05 -0.10051427     0.12868701   
+   3100000   9.4614775e-22  2.8526355e-19  4.8582362e-21  7.9629911e-06  7.9629911e-06  7.8539816e-06  0.013879519    1.5985202e-05 -0.10051425     0.12868538   
+   3200000   4.1195471e-22  1.2420434e-19  4.9323179e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.01387918     1.5985199e-05 -0.10051424     0.12868365   
+   3300000   1.0683166e-22  3.2209746e-20  3.2890176e-21  7.9629875e-06  7.9629875e-06  7.8539816e-06  0.013879058    1.5985198e-05 -0.10051423     0.12868302   
+   3400000   3.7347684e-23  1.1260327e-20  1.4203601e-21  7.9629878e-06  7.9629878e-06  7.8539816e-06  0.013879096    1.5985198e-05 -0.10051423     0.12868322   
+   3500000   1.3953692e-22  4.2070382e-20  2.2991222e-20  7.9629884e-06  7.9629884e-06  7.8539816e-06  0.013879168    1.5985199e-05 -0.10051424     0.12868358   
+   3600000   6.0357875e-23  1.8197899e-20  4.0486324e-21  7.9629887e-06  7.9629887e-06  7.8539816e-06  0.013879205    1.5985199e-05 -0.10051424     0.12868377   
+   3700000   1.3918367e-23  4.1963877e-21  3.6420095e-21  7.9629887e-06  7.9629887e-06  7.8539816e-06  0.013879205    1.5985199e-05 -0.10051424     0.12868377   
+   3800000   3.6754439e-23  1.1081463e-20  9.6671651e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879191    1.5985199e-05 -0.10051424     0.1286837    
+   3900000   2.4981967e-23  7.532063e-21   4.9734785e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879182    1.5985199e-05 -0.10051424     0.12868365   
+   4000000   1.8547896e-23  5.5921906e-21  2.9548082e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.01387918     1.5985199e-05 -0.10051424     0.12868364   
+   4100000   4.6715058e-23  1.408459e-20   6.7913455e-22  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879182    1.5985199e-05 -0.10051424     0.12868365   
+   4200000   1.0599527e-23  3.1957575e-21  8.7964566e-22  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+   4300000   2.3692218e-22  7.1432036e-20  4.5916515e-20  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879185    1.5985199e-05 -0.10051424     0.12868366   
+   4400000   1.6525186e-23  4.9823437e-21  2.3789375e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879185    1.5985199e-05 -0.10051424     0.12868366   
+   4500000   2.9302998e-23  8.834854e-21   7.1196634e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+   4600000   1.1116197e-23  3.3515334e-21  2.4488632e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+   4700000   8.194268e-23   2.4705718e-20  1.7612493e-20  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+   4800000   8.5093006e-23  2.5655541e-20  1.6629639e-20  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+   4900000   5.4923037e-23  1.6559296e-20  5.4108554e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+   5000000   4.7237332e-23  1.4242056e-20  9.3001387e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+Loop time of 176.694 on 4 procs for 5000000 steps with 101 atoms
+
+Performance: 244489803.260 tau/day, 28297.431 timesteps/s, 2.858 Matom-step/s
+99.7% CPU use with 4 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.20332    | 0.27308    | 0.42334    |  16.9 |  0.15
+Bond    | 29.356     | 30.782     | 33.45      |  29.1 | 17.42
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 23.111     | 29.047     | 33.133     |  69.8 | 16.44
+Output  | 0.0098731  | 0.010571   | 0.011408   |   0.6 |  0.01
+Modify  | 112.6      | 115.41     | 121.54     |  33.5 | 65.31
+Other   |            | 1.176      |            |       |  0.67
+
+Nlocal:          25.25 ave          26 max          25 min
+Histogram: 3 0 0 0 0 0 0 0 0 1
+Nghost:           4.25 ave           6 max           3 min
+Histogram: 2 0 0 0 0 0 1 0 0 1
+Neighs:          49.75 ave          52 max          47 min
+Histogram: 1 0 0 0 0 0 2 0 0 1
+
+Total # of neighbors = 199
+Ave neighs/atom = 1.970297
+Ave special neighs/atom = 1.980198
+Neighbor list builds = 0
+Dangerous builds = 0
+
+##############################################################################################################################
+variable    Wexta_theo atom v_w*v_d0*v_ytheo
+compute     Wextf_theo all reduce sum v_Wexta_theo
+
+# Discrete approximation of Uf using U = E*I/2 * int[(y'')^2 dx]
+variable    fddy atom "v_w/(v_E*v_I) * (0.5*v_L^2 - v_L*x + 0.5*x^2)"
+variable    Uf_atom atom "0.5*v_E*v_I*(v_fddy)^2*v_d0"
+compute     Uf_discrete all reduce sum v_Uf_atom
+run         0
+Generated 0 of 0 mixed pair_coeff terms from geometric mixing rule
+WARNING: Communication cutoff adjusted to 2.5 (src/comm.cpp:739)
+Per MPI rank memory allocation (min/avg/max) = 8.639 | 8.639 | 8.639 Mbytes
+   Step          Temp          KinEng         c_erot         PotEng          v_U         v_Uf_theo        v_Uerr         c_Wext          v_dy        c_maxdiffy  
+   5000000   4.7237332e-23  1.4242056e-20  9.3001387e-21  7.9629885e-06  7.9629885e-06  7.8539816e-06  0.013879184    1.5985199e-05 -0.10051424     0.12868366   
+Loop time of 3.0135e-06 on 4 procs for 0 steps with 101 atoms
+
+124.4% CPU use with 4 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0          | 0          | 0          |   0.0 |  0.00
+Bond    | 0          | 0          | 0          |   0.0 |  0.00
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0          | 0          | 0          |   0.0 |  0.00
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 3.014e-06  |            |       |100.00
+
+Nlocal:          25.25 ave          26 max          25 min
+Histogram: 3 0 0 0 0 0 0 0 0 1
+Nghost:           3.75 ave           6 max           2 min
+Histogram: 1 0 1 0 0 1 0 0 0 1
+Neighs:          49.75 ave          52 max          47 min
+Histogram: 1 0 0 0 0 0 2 0 0 1
+
+Total # of neighbors = 199
+Ave neighs/atom = 1.970297
+Ave special neighs/atom = 1.980198
+Neighbor list builds = 0
+Dangerous builds = 0
+
+print "####################################################################"
+####################################################################
+print "The external work done on the beam is W = $(c_Wext)."
+The external work done on the beam is W = 1.5985199068728634124e-05.
+print "The theoretical value is W = $(c_Wextf_theo)."
+The theoretical value is W = 1.5801983470775002148e-05.
+print "####################################################################"
+####################################################################
+print "The total elastic energy of the beam is Uf_theo = ${Uf_theo}."
+The total elastic energy of the beam is Uf_theo = 7.85398163397448e-06.
+print "The discrete approximation is Uf_discrete = $(c_Uf_discrete)."
+The discrete approximation is Uf_discrete = 8.0661776532624405517e-06.
+print "####################################################################"
+####################################################################
+
+Total wall time: 0:02:56

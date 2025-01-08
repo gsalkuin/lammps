@@ -1,0 +1,251 @@
+
+##############################################################################################################################
+# Cylindrical rod under torsion
+# Gabriel Alkuino 07-Jan-2025
+
+# Beam dimensions, area, moments
+variable    L equal 100
+variable    diam equal 1
+variable    d0 equal 1
+
+variable    A equal (PI/4)*${diam}^2
+variable    A equal (PI/4)*1^2
+variable    I equal (PI/64)*${diam}^4
+variable    I equal (PI/64)*1^4
+variable    J equal (PI/32)*${diam}^4
+variable    J equal (PI/32)*1^4
+
+# Shear modulus and Poisson's ratio
+variable    G equal 1
+variable    nu equal 0.5
+
+variable    E equal "v_G*2*(1+v_nu)"
+
+# According to linear elasticity, T = GJ/L * theta
+# We will incrementally rotate the end atom around the x-axis and output Tx
+
+##############################################################################################################################
+units       lj
+dimension   3
+boundary    f f f
+processors  * 1 1
+
+# Dipole is only for tracking orientation
+atom_style      hybrid bpm/sphere dipole
+WARNING: Atom style hybrid defines both, per-type and per-atom masses; both must be set, but only per-atom masses will be used (src/atom_vec_hybrid.cpp:132)
+special_bonds   lj 0.0 1.0 1.0 coul 1.0 1.0 1.0
+newton          on off
+
+neighbor        0.5 bin
+neigh_modify    once yes
+comm_modify     mode single cutoff 2.0 vel yes
+
+read_data   beam-100-with-dipoles.lam
+Reading data file ...
+  orthogonal box = (-1 -101 -0.1) to (101 101 0.1)
+  4 by 1 by 1 MPI processor grid
+  reading atoms ...
+  101 atoms
+  scanning bonds ...
+  2 = max bonds/atom
+  orthogonal box = (-1 -101 -0.1) to (101 101 0.1)
+  4 by 1 by 1 MPI processor grid
+  reading bonds ...
+  100 bonds
+Finding 1-2 1-3 1-4 neighbors ...
+  special bond factors lj:    0        1        1       
+  special bond factors coul:  1        1        1       
+     2 = max # of 1-2 neighbors
+     2 = max # of special neighbors
+  special bonds CPU = 0.000 seconds
+  read_data CPU = 0.007 seconds
+
+change_box  all y final -1 1 z final -1 1
+Changing box ...
+  orthogonal box = (-1 -1 -0.1) to (101 1 0.1)
+  orthogonal box = (-1 -1 -1) to (101 1 1)
+
+region  left block INF 0.5 INF INF INF INF
+region  right block 99.5 INF INF INF INF INF
+group   left region left
+1 atoms in group left
+group   right region right
+1 atoms in group right
+group   free subtract all left right
+99 atoms in group free
+
+##############################################################################################################################
+# BPM parameters
+
+bond_style  bpm/beam smooth no break no
+bond_coeff  1 ${E} ${G} 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 3 ${G} 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 3 1 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 3 1 1 6.283185307179586232 $(2*PI) 0.500000 0.500000 0.50000 0.50000
+bond_coeff  1 3 1 1 6.283185307179586232 6.283185307179586232 0.500000 0.500000 0.50000 0.50000
+pair_style  zero 2.0
+pair_coeff  * * 2.0
+
+##############################################################################################################################
+# Rotate the right end and measure the left end
+
+timestep    0.1
+
+variable	period equal 1e6
+variable	theta equal 2*PI*step*0.1/v_period
+
+fix		1 free nve/bpm/sphere update dipole
+fix		2 free langevin 0 0 10000 83715463 zero yes omega yes
+fix		3 right move rotate 0 0 0 1 0 0 ${period}
+fix		3 right move rotate 0 0 0 1 0 0 1000000
+
+# Note: variable torque and compute torque/chunk only works for group of point particles
+compute		tx left property/atom tqx
+compute		Tx left reduce sum c_tx
+
+variable	Tx_theo equal $(v_G*v_J/v_L)*v_theta
+variable	Tx_theo equal 0.0009817477042468100018*v_theta
+variable    U_theo equal 0.5*v_Tx_theo*v_theta
+
+# Elastic energy in current state, computed by LAMMPS
+compute     mytemp all temp/sphere
+compute     erot all erotate/sphere
+variable    U equal "ke + c_erot + pe" # thermo etotal doesn't include erot
+variable    Uabserr equal abs(v_U-v_U_theo)
+
+thermo_style    custom step temp ke c_erot pe v_U v_U_theo v_Uabserr c_Tx v_Tx_theo v_theta
+thermo_modify   temp mytemp norm no
+thermo          100000
+
+dump    1 all custom 100000 ./twist.dump id x y z mux muy muz tqx tqy tqz
+
+run     5000000
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+
+- Type Label Framework: https://doi.org/10.1021/acs.jpcb.3c08419
+
+@Article{Gissinger24,
+ author = {Jacob R. Gissinger, Ilia Nikiforov, Yaser Afshar, Brendon Waters, Moon-ki Choi, Daniel S. Karls, Alexander Stukowski, Wonpil Im, Hendrik Heinz, Axel Kohlmeyer, and Ellad B. Tadmor},
+ title = {Type Label Framework for Bonded Force Fields in LAMMPS},
+ journal = {J. Phys. Chem. B},
+ year =    2024,
+ volume =  128,
+ number =  13,
+ pages =   {3282–-3297}
+}
+
+- BPM bond style: doi:10.1039/D3SM01373A
+
+@Article{Clemmer2024,
+ author =  {Clemmer, Joel T. and Monti, Joseph M. and Lechman, Jeremy B.},
+ title =   {A soft departure from jamming: the compaction of deformable
+            granular matter under high pressures},
+ journal = {Soft Matter},
+ year =    2024,
+ volume =  20,
+ number =  8,
+ pages =   {1702--1718}
+}
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Generated 0 of 0 mixed pair_coeff terms from geometric mixing rule
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 2.5
+  ghost atom cutoff = 2.5
+  binsize = 1.25, bins = 82 2 2
+  1 neighbor lists, perpetual/occasional/extra = 1 0 0
+  (1) pair zero, perpetual
+      attributes: half, newton on
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+WARNING: Communication cutoff adjusted to 2.5 (src/comm.cpp:739)
+Per MPI rank memory allocation (min/avg/max) = 8.739 | 8.739 | 8.739 Mbytes
+   Step          Temp          KinEng         c_erot         PotEng          v_U          v_U_theo      v_Uabserr         c_Tx        v_Tx_theo       v_theta    
+         0   0              0              0              0              0              0              0              0              0              0            
+    100000   1.159875e-13   3.4970232e-11  3.4970043e-11  1.9378923e-06  1.9379622e-06  1.9378923e-06  6.9941693e-11  6.1698908e-05  6.1685028e-05  0.062831853  
+    200000   1.1598738e-13  3.4970195e-11  3.4970043e-11  7.7515692e-06  7.7516391e-06  7.7515692e-06  6.9941029e-11  0.00012338394  0.00012337006  0.12566371   
+    300000   1.1598713e-13  3.4970121e-11  3.4970011e-11  1.7441031e-05  1.7441101e-05  1.7441031e-05  6.9941562e-11  0.00018506896  0.00018505508  0.18849556   
+    400000   1.1598731e-13  3.4970173e-11  3.4970003e-11  3.1006277e-05  3.1006347e-05  3.1006277e-05  6.9940236e-11  0.00024675399  0.00024674011  0.25132741   
+    500000   1.1598738e-13  3.4970194e-11  3.4970021e-11  4.8447307e-05  4.8447377e-05  4.8447307e-05  6.9941356e-11  0.00030843902  0.00030842514  0.31415927   
+    600000   1.159872e-13   3.497014e-11   3.4969987e-11  6.9764123e-05  6.9764192e-05  6.9764123e-05  6.9940339e-11  0.00037012405  0.00037011017  0.37699112   
+    700000   1.1598759e-13  3.4970257e-11  3.4970063e-11  9.4956722e-05  9.4956792e-05  9.4956722e-05  6.9941435e-11  0.00043180907  0.00043179519  0.43982297   
+    800000   1.1598748e-13  3.4970224e-11  3.4970014e-11  0.00012402511  0.00012402518  0.00012402511  6.994088e-11   0.0004934941   0.00049348022  0.50265482   
+    900000   1.159872e-13   3.497014e-11   3.4970024e-11  0.00015696928  0.00015696935  0.00015696928  6.9940431e-11  0.00055517913  0.00055516525  0.56548668   
+   1000000   1.1598734e-13  3.4970183e-11  3.4970028e-11  0.00019378923  0.0001937893   0.00019378923  6.9941509e-11  0.00061686416  0.00061685028  0.62831853   
+   1100000   1.1598791e-13  3.4970355e-11  3.4970111e-11  0.00023448497  0.00023448504  0.00023448497  6.994127e-11   0.00067854918  0.0006785353   0.69115038   
+   1200000   1.1598739e-13  3.4970199e-11  3.4970021e-11  0.00027905649  0.00027905656  0.00027905649  6.9940228e-11  0.00074023421  0.00074022033  0.75398224   
+   1300000   1.1598747e-13  3.4970222e-11  3.4970039e-11  0.0003275038   0.00032750387  0.0003275038   6.99406e-11    0.00080191924  0.00080190536  0.81681409   
+   1400000   1.1598747e-13  3.4970223e-11  3.4970035e-11  0.00037982689  0.00037982696  0.00037982689  6.9940974e-11  0.00086360427  0.00086359039  0.87964594   
+   1500000   1.1598758e-13  3.4970255e-11  3.4970057e-11  0.00043602577  0.00043602584  0.00043602577  6.9940764e-11  0.00092528929  0.00092527541  0.9424778    
+   1600000   1.159875e-13   3.4970231e-11  3.4970064e-11  0.00049610043  0.0004961005   0.00049610043  6.9941386e-11  0.00098697432  0.00098696044  1.0053096    
+   1700000   1.1598796e-13  3.4970371e-11  3.4970099e-11  0.00056005087  0.00056005094  0.00056005087  6.9942924e-11  0.0010486593   0.0010486455   1.0681415    
+   1800000   1.1598763e-13  3.4970271e-11  3.497008e-11   0.0006278771   0.00062787717  0.0006278771   6.9942574e-11  0.0011103444   0.0011103305   1.1309734    
+   1900000   1.1598777e-13  3.4970313e-11  3.4970058e-11  0.00069957912  0.00069957919  0.00069957912  6.9941945e-11  0.0011720294   0.0011720155   1.1938052    
+   2000000   1.1598784e-13  3.4970335e-11  3.4970115e-11  0.00077515692  0.00077515699  0.00077515692  6.994248e-11   0.0012337144   0.0012337006   1.2566371    
+   2100000   1.1598771e-13  3.4970296e-11  3.4970069e-11  0.0008546105   0.00085461057  0.0008546105   6.9941364e-11  0.0012953995   0.0012953856   1.3194689    
+   2200000   1.1598784e-13  3.4970333e-11  3.4970072e-11  0.00093793987  0.00093793994  0.00093793987  6.994089e-11   0.0013570845   0.0013570706   1.3823008    
+   2300000   1.1598775e-13  3.4970307e-11  3.4970057e-11  0.001025145    0.0010251451   0.001025145    6.994057e-11   0.0014187695   0.0014187556   1.4451326    
+   2400000   1.1598813e-13  3.497042e-11   3.4970156e-11  0.001116226    0.001116226    0.001116226    6.994208e-11   0.0014804545   0.0014804407   1.5079645    
+   2500000   1.1598806e-13  3.4970401e-11  3.4970197e-11  0.0012111827   0.0012111828   0.0012111827   6.994146e-11   0.0015421396   0.0015421257   1.5707963    
+   2600000   1.1598756e-13  3.497025e-11   3.4970061e-11  0.0013100152   0.0013100153   0.0013100152   6.994225e-11   0.0016038246   0.0016038107   1.6336282    
+   2700000   1.1598793e-13  3.497036e-11   3.4970104e-11  0.0014127235   0.0014127236   0.0014127235   6.994131e-11   0.0016655096   0.0016654957   1.69646      
+   2800000   1.1598778e-13  3.4970316e-11  3.4970126e-11  0.0015193076   0.0015193076   0.0015193076   6.994191e-11   0.0017271947   0.0017271808   1.7592919    
+   2900000   1.159878e-13   3.4970321e-11  3.4970094e-11  0.0016297674   0.0016297675   0.0016297674   6.994247e-11   0.0017888797   0.0017888658   1.8221237    
+   3000000   1.1598746e-13  3.4970218e-11  3.4970057e-11  0.0017441031   0.0017441031   0.0017441031   6.994117e-11   0.0018505647   0.0018505508   1.8849556    
+   3100000   1.1598768e-13  3.4970287e-11  3.4970066e-11  0.0018623145   0.0018623146   0.0018623145   6.994086e-11   0.0019122497   0.0019122359   1.9477874    
+   3200000   1.1598765e-13  3.4970277e-11  3.4970055e-11  0.0019844017   0.0019844018   0.0019844017   6.994208e-11   0.0019739348   0.0019739209   2.0106193    
+   3300000   1.1598745e-13  3.4970216e-11  3.497005e-11   0.0021103647   0.0021103648   0.0021103647   6.994139e-11   0.0020356198   0.0020356059   2.0734512    
+   3400000   1.1598843e-13  3.4970512e-11  3.4970229e-11  0.0022402035   0.0022402036   0.0022402035   6.994299e-11   0.0020973048   0.0020972909   2.136283     
+   3500000   1.1598804e-13  3.4970394e-11  3.497018e-11   0.0023739181   0.0023739181   0.0023739181   6.994176e-11   0.0021589898   0.002158976    2.1991149    
+   3600000   1.1598766e-13  3.4970278e-11  3.4970104e-11  0.0025115084   0.0025115085   0.0025115084   6.994212e-11   0.0022206749   0.002220661    2.2619467    
+   3700000   1.1598778e-13  3.4970317e-11  3.4970077e-11  0.0026529745   0.0026529746   0.0026529745   6.994182e-11   0.0022823599   0.002282346    2.3247786    
+   3800000   1.1598771e-13  3.4970294e-11  3.497011e-11   0.0027983165   0.0027983165   0.0027983165   6.994205e-11   0.0023440449   0.002344031    2.3876104    
+   3900000   1.1598778e-13  3.4970316e-11  3.4970088e-11  0.0029475342   0.0029475342   0.0029475342   6.994257e-11   0.00240573     0.0024057161   2.4504423    
+   4000000   1.1598767e-13  3.4970282e-11  3.4970122e-11  0.0031006277   0.0031006277   0.0031006277   6.994174e-11   0.002467415    0.0024674011   2.5132741    
+   4100000   1.1598795e-13  3.4970367e-11  3.4970146e-11  0.0032575969   0.003257597    0.0032575969   6.99413e-11    0.0025291      0.0025290861   2.576106     
+   4200000   1.1598753e-13  3.4970239e-11  3.4970049e-11  0.003418442    0.0034184421   0.003418442    6.994178e-11   0.002590785    0.0025907712   2.6389378    
+   4300000   1.1598752e-13  3.4970238e-11  3.4970086e-11  0.0035831628   0.0035831629   0.0035831628   6.994161e-11   0.0026524701   0.0026524562   2.7017697    
+   4400000   1.1598736e-13  3.4970189e-11  3.4970036e-11  0.0037517595   0.0037517595   0.0037517595   6.994168e-11   0.0027141551   0.0027141412   2.7646015    
+   4500000   1.1598774e-13  3.4970302e-11  3.4970134e-11  0.0039242319   0.003924232    0.0039242319   6.994333e-11   0.0027758401   0.0027758262   2.8274334    
+   4600000   1.1598751e-13  3.4970233e-11  3.497005e-11   0.0041005801   0.0041005802   0.0041005801   6.994084e-11   0.0028375251   0.0028375113   2.8902652    
+   4700000   1.1598741e-13  3.4970204e-11  3.4970008e-11  0.0042808041   0.0042808041   0.0042808041   6.994122e-11   0.0028992102   0.0028991963   2.9530971    
+   4800000   1.1598712e-13  3.4970118e-11  3.4969993e-11  0.0044649038   0.0044649039   0.0044649038   6.994064e-11   0.0029608952   0.0029608813   3.0159289    
+   4900000   1.1598783e-13  3.497033e-11   3.4970098e-11  0.0046528794   0.0046528795   0.0046528794   6.9941781e-11  0.0030225802   0.0030225663   3.0787608    
+   5000000   1.1598737e-13  3.4970192e-11  3.4970038e-11  0.0048447307   0.0048447308   0.0048447307   6.994107e-11   0.0030842653   0.0030842514   3.1415927    
+Loop time of 113.647 on 4 procs for 5000000 steps with 101 atoms
+
+Performance: 380125489.593 tau/day, 43996.006 timesteps/s, 4.444 Matom-step/s
+99.8% CPU use with 4 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.17185    | 0.18398    | 0.20608    |   3.1 |  0.16
+Bond    | 28.309     | 29.952     | 32.342     |  27.6 | 26.36
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 24.273     | 30.573     | 34.293     |  74.1 | 26.90
+Output  | 0.010005   | 0.010824   | 0.01188    |   0.7 |  0.01
+Modify  | 49.245     | 51.993     | 58.202     |  50.1 | 45.75
+Other   |            | 0.9336     |            |       |  0.82
+
+Nlocal:          25.25 ave          26 max          25 min
+Histogram: 3 0 0 0 0 0 0 0 0 1
+Nghost:           4.25 ave           6 max           3 min
+Histogram: 2 0 0 0 0 0 1 0 0 1
+Neighs:          49.75 ave          52 max          47 min
+Histogram: 1 0 0 0 0 0 2 0 0 1
+
+Total # of neighbors = 199
+Ave neighs/atom = 1.970297
+Ave special neighs/atom = 1.980198
+Neighbor list builds = 0
+Dangerous builds = 0
+
+Total wall time: 0:01:53

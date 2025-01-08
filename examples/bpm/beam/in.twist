@@ -1,0 +1,88 @@
+##############################################################################################################################
+# Cylindrical rod under torsion
+# Gabriel Alkuino 07-Jan-2025
+
+# Beam dimensions, area, moments
+variable    L equal 100
+variable    diam equal 1
+variable    d0 equal 1
+
+variable    A equal (PI/4)*${diam}^2
+variable    I equal (PI/64)*${diam}^4
+variable    J equal (PI/32)*${diam}^4
+
+# Shear modulus and Poisson's ratio
+variable    G equal 1
+variable    nu equal 0.5
+
+variable    E equal "v_G*2*(1+v_nu)"
+
+# According to linear elasticity, T = GJ/L * theta
+# We will incrementally rotate the end atom around the x-axis and output Tx
+
+##############################################################################################################################
+units       lj
+dimension   3
+boundary    f f f
+processors  * 1 1
+
+# Dipole is only for tracking orientation
+atom_style      hybrid bpm/sphere dipole
+special_bonds   lj 0.0 1.0 1.0 coul 1.0 1.0 1.0
+newton          on off
+
+neighbor        0.5 bin
+neigh_modify    once yes
+comm_modify     mode single cutoff 2.0 vel yes
+
+read_data   beam-100-with-dipoles.lam
+
+change_box  all y final -1 1 z final -1 1
+
+region  left block INF 0.5 INF INF INF INF
+region  right block 99.5 INF INF INF INF INF
+group   left region left
+group   right region right
+group   free subtract all left right
+
+##############################################################################################################################
+# BPM parameters
+
+bond_style  bpm/beam smooth no break no
+bond_coeff  1 ${E} ${G} 1 $(2*PI) $(2*PI) 0.500000 0.500000 0.50000 0.50000
+pair_style  zero 2.0
+pair_coeff  * * 2.0
+
+##############################################################################################################################
+# Rotate the right end and measure the left end
+
+timestep    0.1
+
+variable	period equal 1e6
+variable	theta equal 2*PI*step*0.1/v_period
+
+fix		1 free nve/bpm/sphere update dipole
+fix		2 free langevin 0 0 10000 83715463 zero yes omega yes
+fix		3 right move rotate 0 0 0 1 0 0 ${period}
+
+# Note: variable torque and compute torque/chunk only works for group of point particles
+compute		tx left property/atom tqx
+compute		Tx left reduce sum c_tx
+
+variable	Tx_theo equal $(v_G*v_J/v_L)*v_theta
+variable    U_theo equal 0.5*v_Tx_theo*v_theta
+
+# Elastic energy in current state, computed by LAMMPS
+compute     mytemp all temp/sphere
+compute     erot all erotate/sphere
+variable    U equal "ke + c_erot + pe" # thermo etotal doesn't include erot
+variable    Uabserr equal abs(v_U-v_U_theo)
+
+thermo_style    custom step temp ke c_erot pe v_U v_U_theo v_Uabserr c_Tx v_Tx_theo v_theta
+thermo_modify   temp mytemp norm no
+thermo          100000
+
+dump    1 all custom 100000 ./twist.dump id x y z mux muy muz tqx tqy tqz
+
+run     5000000
+
