@@ -16,10 +16,10 @@ Examples
 .. code-block:: LAMMPS
 
    bond_style tetmsm
-   bond_coeff 1 2.5e4
+   bond_coeff *
 
-   bond_style tetmsm
-   bond_coeff * 1.8
+   improper_style tetmsm
+   improper_coeff * 1000.0 0.4   # G nu
 
 Description
 """""""""""
@@ -39,38 +39,40 @@ stiffness (energy/length). The conventional spring constant is
 :math:`k_E = \kappa_E / r_0` (force/length).
 
 This command should be used with :doc:`improper_style tetmsm <improper_tetmsm>`
-to model an isotropic linear-elastic solid. The coefficient :math:`\kappa_E`
-can be derived from the target shear modulus :math:`G` using
+to model an isotropic linear-elastic solid. The spring stiffness
+:math:`\kappa_E` is computed automatically from the shear modulus :math:`G`
+(read from the improper style) and the tetrahedral mesh topology
 (:ref:`Lloyd2007 <Lloyd2007>`, :ref:`Golec2020 <Golec2020>`):
 
 .. math::
 
-   k_E \approx \frac{\sqrt{2}}{5} G \sum_\Delta^\text{adj. tets} 
-   \left(\frac{12 V_\Delta}{\sqrt{2}} \right)^{1/3}
+   k_E = \frac{\sqrt{2}}{5} \sum_\Delta^\text{adj.~tets}
+   G_\Delta \left(\frac{12 V_\Delta}{\sqrt{2}} \right)^{1/3}
 
 where the summand is an effective edge length of an irregular tetrahedron
-:math:`\Delta` with volume :math:`V_\Delta` (:ref:`Lloyd2007 <Lloyd2007>`).
+:math:`\Delta` with volume :math:`V_\Delta`. For multi-material meshes
+with multiple improper types, each tetrahedron contributes its own
+:math:`G_\Delta` according to its improper type. The sum over adjacent
+tetrahedra is evaluated by scanning the improper topology at the beginning
+of the first :doc:`run <run>` or :doc:`minimize <minimize>` command.
+Interior edges, shared by more tetrahedra, naturally accumulate higher
+stiffness than boundary edges.
 
-The following coefficient must be defined for each bond type via the
-:doc:`bond_coeff <bond_coeff>` command as in the example above, or in
-the data file or restart files read by the :doc:`read_data <read_data>`
-or :doc:`read_restart <read_restart>` commands:
+This bond style accepts no coefficients. The :doc:`bond_coeff <bond_coeff>`
+command must still be issued for all bond types, but with no arguments:
 
-* :math:`\kappa_E` (energy/length)
+.. code-block:: LAMMPS
 
-The equilibrium bond length :math:`r_0` is **not** specified as a coefficient;
-instead, it is computed from the initial atom positions on the first timestep
-and cached internally (keyed by global atom tags) similar to
-:doc:`bond_style bpm/spring <bond_bpm_spring>`.
+   bond_coeff *
 
 .. note::
 
-   The equilibrium distance :math:`r_0` for each bond is determined from
-   the atom positions at the beginning of the first
-   :doc:`run <run>` or :doc:`minimize <minimize>` command after the bond
-   style has been defined.  Subsequent ``run`` commands in the same input
-   script reuse the cached values.  To reset :math:`r_0`, re-issue the
-   ``bond_style tetmsm`` command before the next ``run``.
+   The equilibrium bond length :math:`r_0` and stiffness :math:`\kappa_E`
+   are determined from the atom positions and the improper (tetrahedral)
+   topology at the beginning of the first :doc:`run <run>` or
+   :doc:`minimize <minimize>` command after the bond style has been defined.
+   Subsequent ``run`` commands in the same input script reuse the cached values.
+   To reset, re-issue the ``bond_style tetmsm`` command before the next ``run``.
 
 ----------
 
@@ -78,18 +80,21 @@ Restart info
 """"""""""""
 
 This bond style supports the :doc:`write_restart <write_restart>` and
-:doc:`read_restart <read_restart>` commands. The :math:`\kappa_E` 
-coefficient for each bond type and the per-bond reference lengths
-:math:`r_0` are stored.
+:doc:`read_restart <read_restart>` commands. The per-bond reference lengths
+:math:`r_0` and stiffness :math:`\kappa_E` are stored.
 
 Restrictions
 """"""""""""
 
-This bond style maintains internal data to determine the original bond
-lengths :math:`r_0`.  This information will be written to binary restart
-files but not to data files.  Thus, continuing a simulation from a
+This bond style requires :doc:`improper_style tetmsm <improper_tetmsm>` to be
+defined. The improper topology provides the tetrahedral connectivity needed
+to compute the per-bond stiffness.
+
+This bond style maintains internal data (reference lengths :math:`r_0` and
+stiffness :math:`\kappa_E`).  This information will be written to binary
+restart files but not to data files.  Thus, continuing a simulation from a
 deformed state is only possible with :doc:`read_restart <read_restart>`.
-When using :doc:`read_data <read_data>`, the reference lengths will be
+When using :doc:`read_data <read_data>`, the internal data will be
 re-initialized from the current geometry.
 
 This bond style requires that atoms have tags (``atom_modify id yes``,

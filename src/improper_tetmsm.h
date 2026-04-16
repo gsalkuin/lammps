@@ -23,11 +23,10 @@
    Energy:   U = (1/2) kappa_V * V0 * (1 - V/V0)^2
    Force:    f_i = -kappa_V * (V - V0) / V0 * dV/dx_i
 
-   kappa_V has units of [energy/volume] (pressure) and is the volume
-   stiffness (strain energy per unit reference volume at unit strain).
-   The conventional volume penalty constant is kV = kappa_V * V0.
+   where kappa_V = G * (4*nu - 1) / (1 - 2*nu) is computed internally
+   from the user-supplied shear modulus G and Poisson's ratio nu.
 
-   Coeffs:   improper_coeff TYPE kappa_V
+   Coeffs:   improper_coeff TYPE G nu
 ------------------------------------------------------------------------- */
 
 #ifdef IMPROPER_CLASS
@@ -58,7 +57,9 @@ class ImproperTetMSM : public Improper {
   void *extract(const char *, int &) override;
 
  protected:
-  double *kappa;
+  double *G_coeff;
+  double *nu_coeff;
+  double *kappa_v;
 
   struct ImpKey {
     int64_t t1, t2, t3, t4;
@@ -76,6 +77,7 @@ class ImproperTetMSM : public Improper {
     }
   };
   std::unordered_map<ImpKey, double, ImpKeyHash> v0_map;
+  bool built;    // true after V0 map replication or restart load
 
   double compute_tet_volume(double **x, int i1, int i2, int i3, int i4);
   double get_v0(int64_t t1, int64_t t2, int64_t t3, int64_t t4,

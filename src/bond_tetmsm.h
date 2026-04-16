@@ -17,17 +17,18 @@
    bond_style tetmsm
 
    Harmonic spring for tetrahedral mass-spring models.
-   Reference length r0 is auto-computed from initial geometry and
-   stored in binary restart files.
+   No user coefficients. Shear modulus G is read from improper_style
+   tetmsm, and per-bond stiffness kappa_E is computed from the
+   tetrahedral mesh topology on the first compute() call.
 
    Energy:   U = (1/2) kappa_E * r0 * (1 - r/r0)^2
    Force:    F = -kappa_E * (r - r0) / r0
 
-   kappa_E has units of [energy/length] and is the spring stiffness
-   (strain energy per unit reference length at unit strain).
-   The conventional spring constant is kE = kappa_E / r0.
+   Requires improper_style tetmsm.
 
-   Coeffs:   bond_coeff TYPE kappa_E
+   Usage:
+     bond_style tetmsm
+     bond_coeff *
 ------------------------------------------------------------------------- */
 
 #ifdef BOND_CLASS
@@ -52,6 +53,7 @@ class BondTetMSM : public Bond {
   ~BondTetMSM() override;
   void compute(int, int) override;
   void coeff(int, char **) override;
+  void init_style() override;
   double equilibrium_distance(int) override;
   void write_restart(FILE *) override;
   void read_restart(FILE *) override;
@@ -60,8 +62,6 @@ class BondTetMSM : public Bond {
   void *extract(const char *, int &) override;
 
  protected:
-  double *kappa;
-
   struct BondKey {
     int64_t lo, hi;
     bool operator==(const BondKey &o) const {
@@ -75,10 +75,15 @@ class BondTetMSM : public Bond {
       return h;
     }
   };
-  std::unordered_map<BondKey, double, BondKeyHash> r0_map;
-  double max_r0;
 
-  double get_r0(int64_t t1, int64_t t2, double r_current);
+  std::unordered_map<BondKey, double, BondKeyHash> r0_map;
+  std::unordered_map<BondKey, double, BondKeyHash> kappa_E_map;
+  double max_r0;
+  bool built;    // true after topology scan or restart load
+
+  BondKey make_key(int64_t t1, int64_t t2);
+  void build_from_improperlist();
+  static double tet_volume(double **x, int a1, int a2, int a3, int a4);
 
   virtual void allocate();
 };

@@ -16,10 +16,10 @@ Examples
 .. code-block:: LAMMPS
 
    improper_style tetmsm
-   improper_coeff 1 5.0e3
+   improper_coeff 1 1000.0 0.4
 
    improper_style tetmsm
-   improper_coeff * 1.2
+   improper_coeff * 500.0 0.25
 
 Description
 """""""""""
@@ -62,7 +62,7 @@ The coefficient :math:`\kappa_V` is the volume stiffness
 
 This command should be used in conjunction with :doc:`bond_style tetmsm <bond_tetmsm>`
 to model an isotropic linear-elastic solid with arbitrary Poisson's ratio :math:`\nu`.
-Given a target shear modulus :math:`G` and Poisson's ratio :math:`\nu`, the coefficient is:
+The volume stiffness :math:`\kappa_V` is computed internally from the coefficients:
 
 .. math::
 
@@ -80,13 +80,18 @@ order when viewed from vertex 4.  If the reference volume is non-positive
 (e.g. degenerate tetrahedron or incorrect vertex ordering), the code will
 abort with an error.
 
-The following coefficient must be defined for each improper type via the
+The following coefficients must be defined for each improper type via the
 :doc:`improper_coeff <improper_coeff>` command as in the example above,
 or in the data file or restart files read by the
 :doc:`read_data <read_data>` or :doc:`read_restart <read_restart>`
 commands:
 
-* :math:`\kappa_V` (energy/volume)
+* :math:`G` (pressure) = shear modulus
+* :math:`\nu` (dimensionless) = Poisson's ratio
+
+The volume stiffness :math:`\kappa_V` is computed internally from these
+values.  The shear modulus :math:`G` is also used by
+:doc:`bond_style tetmsm <bond_tetmsm>` to compute the spring stiffness.
 
 The reference volume :math:`V_0` is **not** specified as a coefficient;
 instead, it is computed from the initial atom positions on the first
@@ -107,8 +112,8 @@ Restart info
 """"""""""""
 
 This improper style supports the :doc:`write_restart <write_restart>` and
-:doc:`read_restart <read_restart>` commands. The :math:`\kappa_V` 
-coefficient for each improper type and the per-tet reference volumes
+:doc:`read_restart <read_restart>` commands. The :math:`G` and :math:`\nu`
+coefficients for each improper type and the per-tet reference volumes
 :math:`V_0` are stored.
 
 Restrictions
@@ -151,4 +156,3 @@ none
 .. _Clemmer2024b:
 
 **(Clemmer2024)** Clemmer, Monti, Lechman, Soft Matter, 20, 1702-1718 (2024).
-
